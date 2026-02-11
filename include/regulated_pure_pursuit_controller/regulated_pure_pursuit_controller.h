@@ -239,6 +239,18 @@ namespace regulated_pure_pursuit_controller{
       //Control frequency
       double control_duration_;
 
+      // Parameters to check blocked path
+      bool check_blocked_path_;
+      double blocked_path_detection_range_;
+      int lethal_cost_;
+
+      /**
+       * @brief Checks if the global plan is blocked by obstacles in the costmap
+       */
+      bool checkBlockedPath(const std::vector<geometry_msgs::PoseStamped>& global_plan,
+                            const geometry_msgs::PoseStamped& robot_pose,
+                            const costmap_2d::Costmap2D* costmap);
+
       /**
        * Pointer to other ROS Objects
        */

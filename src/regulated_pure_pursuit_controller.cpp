@@ -130,6 +130,11 @@ namespace regulated_pure_pursuit_controller
         nh.param<double>("transform_tolerance", transform_tolerance, 0.1);
         transform_tolerance_ = ros::Duration(transform_tolerance);
 
+        // Parameters to check blocked path
+        nh.param<bool>("check_blocked_path", check_blocked_path_, true); 
+        nh.param<double>("blocked_path_detection_range", blocked_path_detection_range_, 2.4);
+        nh.param<int>("lethal_cost", lethal_cost_, 254);
+
         //Ddynamic Reconfigure
 
         ddr_.reset(new ddynamic_reconfigure::DDynamicReconfigure(nh));
@@ -166,6 +171,11 @@ namespace regulated_pure_pursuit_controller
         ddr_->registerVariable<double>("max_allowed_time_to_collision_up_to_carrot", &this->max_allowed_time_to_collision_up_to_carrot_, "", 0.0, 10.0);
         ddr_->registerVariable<double>("goal_dist_tol", &this->goal_dist_tol_, "", 0.0, 4.0);
 
+        //Blocked Path Params
+        ddr_->registerVariable<bool>("check_blocked_path", &this->check_blocked_path_);
+        ddr_->registerVariable<double>("blocked_path_detection_range", &this->blocked_path_detection_range_, "", 0.0, 10.0);
+        ddr_->registerVariable<int>("lethal_cost", &this->lethal_cost_, "", 0, 255);
+
         ddr_->publishServicesTopics();
         
     }
@@ -177,6 +187,8 @@ namespace regulated_pure_pursuit_controller
             ROS_ERROR("RegulatedPurePursuitController has not been initialized, please call initialize() before using this planner");
             return false;
         }
+
+        ROS_WARN("RPP: New global plan received. Size: %lu", orig_global_plan.size());
 
         // store the global plan
         global_plan_.clear();
@@ -234,6 +246,12 @@ namespace regulated_pure_pursuit_controller
             return mbf_msgs::ExePathResult::INTERNAL_ERROR;
         }
 
+        if (check_blocked_path_) {
+            if (checkBlockedPath(global_plan_, robot_pose, costmap_)) {
+                ROS_WARN_THROTTLE(1.0, "[RPP]The global path is blocked by some obstacle.");
+                return mbf_msgs::ExePathResult::BLOCKED_PATH;
+            }
+        }
 
         // check if global goal is reached
         geometry_msgs::PoseStamped global_goal;
@@ -807,5 +825,56 @@ namespace regulated_pure_pursuit_controller
         speed.angular.z = robot_odom.twist.twist.angular.z;
     }
 
+    bool RegulatedPurePursuitController::checkBlockedPath(
+        const std::vector<geometry_msgs::PoseStamped>& global_plan,
+        const geometry_msgs::PoseStamped& robot_pose,
+        const costmap_2d::Costmap2D* costmap)
+    {
+        if (global_plan.empty()) {
+            return false;
+        }
+        
+        geometry_msgs::TransformStamped map_to_odom_transform;
+        
+        try {
+            map_to_odom_transform = tf_->lookupTransform(
+                robot_pose.header.frame_id,     
+                global_plan.front().header.frame_id, 
+                ros::Time(0),                       
+                ros::Duration(0.5));                
+        } catch (tf2::TransformException &ex) {
+            ROS_WARN("RPP Safety: Could not lookup transform: %s", ex.what());
+            return true;
+        }
 
+        geometry_msgs::PoseStamped transformed_pose;
+        double rx = robot_pose.pose.position.x;
+        double ry = robot_pose.pose.position.y;
+        double detection_range_sq = blocked_path_detection_range_ * blocked_path_detection_range_;
+
+        for (unsigned int i = 0; i < global_plan.size(); ++i) {
+
+            tf2::doTransform(global_plan[i], transformed_pose, map_to_odom_transform);
+
+            double dx = rx - transformed_pose.pose.position.x;
+            double dy = ry - transformed_pose.pose.position.y;
+            double sq_dist = dx*dx + dy*dy;
+
+            if (sq_dist > detection_range_sq) {
+                break; 
+            }
+
+            unsigned int px, py;
+            if (costmap->worldToMap(transformed_pose.pose.position.x, transformed_pose.pose.position.y, px, py)) {
+                unsigned char cost = costmap->getCost(px, py);
+
+                if (cost >= lethal_cost_) {
+                    ROS_WARN_THROTTLE(1.0, "[Safety] Blocked at index %u! Cost: %d", i, cost);
+                    return true; 
+                }
+            }
+        }
+
+        return false;
+    }
 }
