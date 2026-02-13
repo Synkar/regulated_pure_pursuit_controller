@@ -190,9 +190,7 @@ namespace regulated_pure_pursuit_controller
         {
             ROS_ERROR("RegulatedPurePursuitController has not been initialized, please call initialize() before using this planner");
             return false;
-        }
-
-        ROS_WARN("RPP: New global plan received. Size: %lu", orig_global_plan.size());
+        }  
 
         // store the global plan
         global_plan_.clear();
