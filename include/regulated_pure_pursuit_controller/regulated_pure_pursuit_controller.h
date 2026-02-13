@@ -238,6 +238,24 @@ namespace regulated_pure_pursuit_controller{
       ros::Duration transform_tolerance_;
       //Control frequency
       double control_duration_;
+      double yaw_goal_tolerance_;
+
+      /**
+       * @brief normalize angle to interval [-pi, pi)
+       * @remark This function is based on normalize_theta from g2o
+       *         see: https://github.com/RainerKuemmerle/g2o/blob/master/g2o/stuff/misc.h
+       */
+      inline double normalize_theta(double theta)
+      {
+          if (theta >= -M_PI && theta < M_PI) return theta;
+
+          double multiplier = std::floor(theta / (2.0 * M_PI));
+          theta             = theta - multiplier * 2.0 * M_PI;
+          if (theta >= M_PI) theta -= 2.0 * M_PI;
+          if (theta < -M_PI) theta += 2.0 * M_PI;
+
+          return theta;
+      }
 
       // Parameters to check blocked path
       bool check_blocked_path_;

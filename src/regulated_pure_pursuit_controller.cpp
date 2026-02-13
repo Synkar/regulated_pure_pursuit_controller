@@ -17,6 +17,7 @@
 
 // pluginlib macros (defines, ...)
 #include <pluginlib/class_list_macros.h>
+#include <angles/angles.h>
 
 // PLUGINLIB_DECLARE_CLASS has been changed to PLUGINLIB_EXPORT_CLASS in ROS Noetic
 // Changing all tf::TransformListener* to tf2_ros::Buffer*
@@ -121,6 +122,7 @@ namespace regulated_pure_pursuit_controller
         nh.param<double>("max_allowed_time_to_collision_up_to_carrot", max_allowed_time_to_collision_up_to_carrot_, 1.0);
         
         nh.param<double>("goal_dist_tol", goal_dist_tol_, 0.25);
+        nh.param<double>("yaw_goal_tolerance", yaw_goal_tolerance_, 0.1);
 
         double control_frequency;
         nh.param<double>("control_frequency", control_frequency, 20);
@@ -175,6 +177,8 @@ namespace regulated_pure_pursuit_controller
         ddr_->registerVariable<bool>("check_blocked_path", &this->check_blocked_path_);
         ddr_->registerVariable<double>("blocked_path_detection_range", &this->blocked_path_detection_range_, "", 0.0, 10.0);
         ddr_->registerVariable<int>("lethal_cost", &this->lethal_cost_, "", 0, 255);
+
+        ddr_->registerVariable<double>("yaw_goal_tolerance", &this->yaw_goal_tolerance_, "", 0.0, 3.14);
 
         ddr_->publishServicesTopics();
         
@@ -252,19 +256,25 @@ namespace regulated_pure_pursuit_controller
                 return mbf_msgs::ExePathResult::BLOCKED_PATH;
             }
         }
-
+        
         // check if global goal is reached
         geometry_msgs::PoseStamped global_goal;
+        // Transform the global goal to the robot frame (base_link) to check if it's reached
         tf2::doTransform(global_plan_.back(), global_goal, tf_plan_to_robot_frame);
-        double dx_2 = global_goal.pose.position.x * global_goal.pose.position.x;
-        double dy_2 = global_goal.pose.position.y * global_goal.pose.position.y;
+        
+        double dx = global_goal.pose.position.x;
+        double dy = global_goal.pose.position.y;
+        double dist_error = std::hypot(dx, dy);
 
-        if(fabs(std::sqrt(dx_2 + dy_2)) < goal_dist_tol_ && global_plan_.size() <= min_global_plan_complete_size_)
+        double yaw_error = tf2::getYaw(global_goal.pose.orientation);
+        yaw_error = normalize_theta(yaw_error);
+
+        if (dist_error < goal_dist_tol_ && std::abs(yaw_error) < yaw_goal_tolerance_)
         {
             goal_reached_ = true;
             return mbf_msgs::ExePathResult::SUCCESS;
         }
-
+    
         // Return false if the transformed global plan is empty
         if (transformed_plan.empty())
         {
