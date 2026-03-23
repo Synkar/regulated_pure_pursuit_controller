@@ -335,6 +335,7 @@ namespace regulated_pure_pursuit_controller
         const double & carrot_dist = std::hypot(carrot_pose.pose.position.x, carrot_pose.pose.position.y);
         if (isCollisionImminent(robot_pose, linear_vel, angular_vel, carrot_dist)) {
             ROS_WARN("RegulatedPurePursuitController detected collision ahead!");
+            return mbf_msgs::ExePathResult::NO_VALID_CMD;
         }
 
         // populate and return message
@@ -706,6 +707,13 @@ namespace regulated_pure_pursuit_controller
             costmap_ros_->getLayeredCostmap()->isTrackingUnknown())
         {
             return false;
+        }
+
+        // ROS 1 BUG FIX: base_local_planner::CostmapModel::footprintCost() returns 
+        // negative values (-1.0, -2.0, -3.0) when the robot is in collision or off-map. 
+        // We must explicitly check for < 0.0 to prevent the robot from ignoring obstacles.
+        if (footprint_cost < 0.0) {
+            return true;
         }
 
         // if occupied or unknown and not to traverse unknown space
